@@ -1,0 +1,9 @@
+.venv
+.vscode
+core
+User_Data
+config/.cloud
+config/.storage
+config/blueprints
+config/deps
+config/tts

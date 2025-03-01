@@ -1,0 +1,38 @@
+actions:
+  - action: light.turn_off
+    description: Turn off the light
+    target:
+      entity_id: light.luz
+
+  - action: light.turn_on
+    description: Turn on the light
+    target:
+      entity_id: light.luz
+
+  - action: media_player.play_media
+    description: Given a media content id play a youtube video
+    target:
+      entity_id: media_player.tv
+    data:
+      media_content_type: url
+      media_content_id: {arg0} # https://www.youtube.com/watch?v=dQw4w9WgXcQ
+
+  - action: remote.turn_on
+    description: Turn on the tv
+    target:
+      entity_id: remote.tv
+
+  - action: remote.turn_off
+    description: Turn off the tv
+    target:
+      entity_id: remote.tv
+
+  - action: remote.toggle
+    description: Toggle the remote
+    target:
+      entity_id: remote.tv
+
+  - action: api_endpoints_exposer.get_sensor_attributes
+    description: Get latest news
+    target:
+      entity_id: sensor.latest_news

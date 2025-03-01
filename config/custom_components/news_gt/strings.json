@@ -1,0 +1,14 @@
+{
+    "title": "News Guatemala",
+    "config": {
+      "step": {
+        "user": {
+          "title": "[%key:component::news_gt::title%]",
+          "description": "Do you want to configure the News GT Integration?"
+        }
+      },
+      "abort": {
+        "already_configured": "Already Configured"
+      }
+    }
+}

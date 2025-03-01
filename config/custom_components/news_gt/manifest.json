@@ -1,0 +1,9 @@
+{
+  "domain": "news_gt",
+  "name": "News Guatemala",
+  "codeowners": ["@oscarklee"],
+  "config_flow": true,
+  "iot_class": "cloud_polling",
+  "version": "0.1.0",
+  "requirements": ["jsonpath==0.82.2"]
+}

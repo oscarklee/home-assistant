@@ -1,0 +1,7 @@
+{
+  "domain": "api_endpoints_exposer",
+  "name": "API Endpoints Exposer",
+  "codeowners": ["@oscarklee"],
+  "config_flow": true,
+  "version": "0.1.0"
+}

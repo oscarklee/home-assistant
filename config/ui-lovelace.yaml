@@ -1,0 +1,11 @@
+views:
+  - title: Home
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: New section
+          - type: custom:news-card
+            entity: sensor.latest_news
+            description: Get the latest news
+        column_span: 1
