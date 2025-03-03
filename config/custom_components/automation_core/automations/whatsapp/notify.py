@@ -1,7 +1,6 @@
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from custom_components.automation_core.utils import get_domain
 from custom_components.automation_core.entity import NotifyAutomationEntity
 
 class WhatsApp(NotifyAutomationEntity):
@@ -9,7 +8,6 @@ class WhatsApp(NotifyAutomationEntity):
 
     def __init__(self, hass:HomeAssistant, config_entry: ConfigEntry):
         super().__init__(hass, config_entry)
-        self._domain = get_domain(__file__)
         self._attr_name = "WhatsApp"
         self._attr_unique_id = f"{config_entry.entry_id}_notify"
         self._attr_device_info = DeviceInfo(

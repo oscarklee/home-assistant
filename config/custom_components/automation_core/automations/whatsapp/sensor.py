@@ -1,7 +1,6 @@
 from homeassistant.core import HomeAssistant, Event
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from custom_components.automation_core.utils import get_domain
 from custom_components.automation_core.entity import SensorAutomationEntity
 
 class WhatsAppLoginSensor(SensorAutomationEntity):
@@ -9,7 +8,6 @@ class WhatsAppLoginSensor(SensorAutomationEntity):
 
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry):
         super().__init__(hass, config_entry)
-        self._domain = get_domain(__file__)
         self._attr_name = "WhatsApp Login Status"
         self._attr_unique_id = f"{config_entry.entry_id}_login_status"
         self._attr_device_info = DeviceInfo(

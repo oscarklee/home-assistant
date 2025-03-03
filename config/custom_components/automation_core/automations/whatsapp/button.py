@@ -5,7 +5,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.components.sensor import State
-from custom_components.automation_core.utils import get_domain
 from custom_components.automation_core.entity import ButtonAutomationEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -15,7 +14,6 @@ class WhatsAppLoginButton(ButtonAutomationEntity):
     
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry):
         super().__init__(hass, config_entry)
-        self._domain = get_domain(__file__)
         self._attr_name = "WhatsApp Login"
         self._attr_unique_id = f"{config_entry.entry_id}_login_button"
         self._attr_device_info = DeviceInfo(
