@@ -7,3 +7,5 @@ config/.storage
 config/blueprints
 config/deps
 config/tts
+config/home-assistant*
+config/**/__pycache__

@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.helpers import device_registry as dr
-from custom_components.automation_core.service import async_setup_custom_services
+from custom_components.automation_core.service import AutomationService
 from custom_components.automation_core.utils import get_main_domain
 
 DOMAIN = get_main_domain()
@@ -21,7 +21,9 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][config_entry.entry_id] = config_entry
 
-    await async_setup_custom_services(hass, config_entry)
+    automation_service = AutomationService(hass, config_entry)
+    hass.data[DOMAIN]['get_page'] = automation_service.get_page
+
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     await cleanup_old_device(hass)
     return True

@@ -3,19 +3,18 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from custom_components.automation_core.utils import get_domain
+from custom_components.automation_core.entity import SensorAutomationEntity
 
-DOMAIN = get_domain(__file__)
-
-class DeclaraGuateSensor(SensorEntity):
+class DeclaraGuateSensor(SensorAutomationEntity):
     """Sensor to show DeclaraGuate status."""
 
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry):
-        self.hass = hass
-        self._config = config_entry.data
+        super().__init__(hass, config_entry)
+        self._domain = get_domain(__file__)
         self._attr_name = "Declaraguate Status"
         self._attr_unique_id = f"{config_entry.entry_id}_declaraguate_status"
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, config_entry.entry_id)},
+            identifiers={(self._domain, config_entry.entry_id)},
             name="Declaraguate",
             model="Declaraguate",
             manufacturer="oklee",

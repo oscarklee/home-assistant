@@ -4,7 +4,7 @@ import logging
 from typing import Dict, Optional
 from pathlib import Path
 
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from playwright.async_api import Page, async_playwright, ChromiumBrowserContext
 from custom_components.automation_core.utils import get_main_domain
@@ -13,22 +13,13 @@ DOMAIN = get_main_domain()
 
 logger = logging.getLogger(__name__)
 
-async def async_setup_custom_services(
-    hass: HomeAssistant,
-    config_entry: ConfigEntry,
-) -> None:
-    """Add Custom Services."""
-    async def handle_automation_core(call):
-        print("Getting page")
-
-    hass.services.async_register(DOMAIN, "get_page", handle_automation_core)
-
 @dataclass
 class AutomationService:
     hass: HomeAssistant
     config_entry: ConfigEntry
     user_data_dir: Path = field(default_factory=lambda: Path("./User_Data").absolute())
     pages: Dict[str, Page] = field(default_factory=dict)
+    _locks: Dict[str, asyncio.Lock] = field(default_factory=dict)
     _context: Optional[ChromiumBrowserContext] = None
     _shutdown_event: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -58,13 +49,25 @@ class AutomationService:
     async def shutdown(self) -> None:
         self._shutdown_event.set()
 
-    async def get_page(self, call: ServiceCall) -> Optional[Page]:
-        if not self._context or not (page_id := call.data.get("id")):
-            return None
+    async def get_context(self) -> ChromiumBrowserContext:
+        while True:
+            if self._context is not None:
+                return self._context
+            
+            await asyncio.sleep(0)
 
-        if page := self.pages.get(page_id):
-            return page
+    async def _get_lock(self, page_id: str) -> asyncio.Lock:
+        if page_id not in self._locks:
+            self._locks[page_id] = asyncio.Lock()
+        return self._locks[page_id]
 
-        new_page = await self._context.new_page()
-        self.pages[page_id] = new_page
-        return new_page
+    async def get_page(self, page_id: str) -> Optional[Page]:       
+        lock = await self._get_lock(page_id)
+        async with lock:
+            if page := self.pages.get(page_id):
+                return page
+            
+            context = await asyncio.wait_for(self.get_context(), timeout=10)
+            new_page = await context.new_page()
+            self.pages[page_id] = new_page
+            return new_page
