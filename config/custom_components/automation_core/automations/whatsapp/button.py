@@ -6,6 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.components.sensor import State
 from custom_components.automation_core.entity import ButtonAutomationEntity
+from custom_components.automation_core.automations.whatsapp.lib import WhatsApp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,9 +35,12 @@ class WhatsAppLoginButton(ButtonAutomationEntity):
         print("Iniciando sesión en WhatsApp")
         try:
             if self._page:
-                await self._page.goto("https://web.whatsapp.com")
+                await self.change_state("in_progress")
+                await WhatsApp.login(self._page)
+                await self.change_state("logged_in")
         except (asyncio.TimeoutError, Exception) as e:
             print(f"Failed to initialize WhatsApp page: {e}")
 
+    async def change_state(self, state: str) -> None:
         event_name = f"event.{self._domain}_login_status"
-        self.hass.bus.fire(event_name, {"state": "logged_in"})
+        self.hass.bus.fire(event_name, {"state": state})

@@ -4,8 +4,6 @@ import logging
 from typing import Dict, Optional
 from pathlib import Path
 
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
 from playwright.async_api import Page, async_playwright, ChromiumBrowserContext
 from custom_components.automation_core.utils import get_main_domain
 
@@ -15,8 +13,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AutomationService:
-    hass: HomeAssistant
-    config_entry: ConfigEntry
     user_data_dir: Path = field(default_factory=lambda: Path("./User_Data").absolute())
     pages: Dict[str, Page] = field(default_factory=dict)
     _locks: Dict[str, asyncio.Lock] = field(default_factory=dict)
@@ -67,7 +63,7 @@ class AutomationService:
             if page := self.pages.get(page_id):
                 return page
             
-            context = await asyncio.wait_for(self.get_context(), timeout=10)
+            context = await asyncio.wait_for(self.get_context(), timeout=60)
             new_page = await context.new_page()
             self.pages[page_id] = new_page
             return new_page

@@ -1,5 +1,5 @@
 .venv
-.vscode
+**/.vscode
 core
 User_Data
 config/.cloud
@@ -9,3 +9,4 @@ config/deps
 config/tts
 config/home-assistant*
 config/**/__pycache__
+config/www/automation_core/whatsapp/qr.png

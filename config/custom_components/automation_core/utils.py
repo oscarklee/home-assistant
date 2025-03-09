@@ -3,11 +3,15 @@ import sys
 import inspect
 import importlib.util
 
+from playwright.async_api import Locator
+from datetime import timedelta
+
 from pathlib import Path
 from typing import Type, List, TypeVar
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 
+ONE_SECOND = 1000
 T = TypeVar('T')
 
 def get_automation_instances_of_type(hass: HomeAssistant, config_entry:ConfigEntry, entity_type: Type[T]) -> List[T]:
@@ -49,3 +53,21 @@ def get_domain(dir: str) -> str:
 
 def get_main_domain() -> str:
     return get_domain(__file__)
+
+def get_milliseconds(*args, **kwargs):
+    time_delta = timedelta(*args, **kwargs)
+    return time_delta.total_seconds() * ONE_SECOND
+
+def milliseconds(n):
+    return get_milliseconds(milliseconds=n)
+
+def seconds(n):
+    return get_milliseconds(seconds=n)
+
+def minutes(n):
+    return get_milliseconds(minutes=n)
+
+async def take_qr_screenshot(selector:Locator, path: str):
+    element = await selector.element_handle()
+    if element:
+        await element.screenshot(path=path)

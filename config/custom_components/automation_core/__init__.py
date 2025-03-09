@@ -12,7 +12,7 @@ from custom_components.automation_core.service import AutomationService
 from custom_components.automation_core.utils import get_main_domain
 
 DOMAIN = get_main_domain()
-PLATFORMS = [Platform.NOTIFY, Platform.SENSOR, Platform.BUTTON]
+PLATFORMS = [Platform.NOTIFY, Platform.SENSOR, Platform.BUTTON, Platform.IMAGE]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][config_entry.entry_id] = config_entry
 
-    automation_service = AutomationService(hass, config_entry)
+    automation_service = AutomationService()
     hass.data[DOMAIN]['get_page'] = automation_service.get_page
 
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)

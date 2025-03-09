@@ -2,6 +2,7 @@ from homeassistant.core import HomeAssistant, Event
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from custom_components.automation_core.entity import SensorAutomationEntity
+from custom_components.automation_core.automations.whatsapp.lib import WhatsApp
 
 class WhatsAppLoginSensor(SensorAutomationEntity):
     """Sensor to show WhatsApp login status."""
@@ -18,7 +19,7 @@ class WhatsAppLoginSensor(SensorAutomationEntity):
             entry_type=DeviceEntryType.SERVICE,
         )
 
-        self._state = "unknown"
+        self._state = WhatsApp._state
         event_name = f"event.{self._domain}_login_status"
         hass.bus.async_listen(event_name, self._handle_event)
 
@@ -26,14 +27,9 @@ class WhatsAppLoginSensor(SensorAutomationEntity):
         """Handle the event."""
         new_state = event.data.get("state")
         if new_state:
-            self._state = new_state
+            WhatsApp._state = new_state
             self.async_write_ha_state()
-            print(f"Estado actualizado a: {new_state}")
 
     @property
     def state(self):
-        return self._state
-
-    async def async_update(self):
-        """Update the sensor state."""
-        self._state = "unknown"
+        return WhatsApp._state
