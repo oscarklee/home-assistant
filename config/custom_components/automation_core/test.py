@@ -33,10 +33,10 @@ async def main():
         while True:
             await asyncio.sleep(5)
     except asyncio.CancelledError:
-        pass
+        await automation_service.shutdown()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        LOGGER.info("Programa finalizado.")
+        LOGGER.info("Program exited")
