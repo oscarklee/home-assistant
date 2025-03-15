@@ -22,7 +22,7 @@ async def main():
     LOGGER.info("Testing WhatsApp Automation")
     automation_service = AutomationService()
     try:
-        WhatsApp._event_emitter.add_listener(WhatsAppEventName.NEW_QR_SCREENSHOT, lambda: LOGGER.info("New QR!!"))
+        WhatsApp._event_emitter.add_listener(WhatsAppEventName.NEW_QR_SCREENSHOT, lambda path: LOGGER.info(f"New QR!! : {path}"))
         WhatsApp._event_emitter.add_listener(WhatsAppEventName.LOGIN_STATUS, lambda status: LOGGER.info(f"New Status: {status}"))
         page: Page = await automation_service.get_page('whatsapp')
         await WhatsApp.login(page)
@@ -31,7 +31,7 @@ async def main():
 
     try:
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(5)
     except asyncio.CancelledError:
         pass
 

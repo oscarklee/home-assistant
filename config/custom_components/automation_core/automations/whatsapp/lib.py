@@ -1,7 +1,7 @@
 import logging
 import asyncio
 
-from typing import Optional
+from typing import Optional, List, Dict
 from pathlib import Path
 from custom_components.automation_core import utils
 from playwright.async_api import Page, TimeoutError, ElementHandle
@@ -14,6 +14,7 @@ LOGGER = logging.getLogger(__name__)
 class WhatsAppEventName(StrEnum):
     LOGIN_STATUS = "login_status"
     NEW_QR_SCREENSHOT = "new_qr_screenshot"
+    MESSAGE_COMING = "message_comming"
 
 class WhatsAppLoginStatus(StrEnum):
     NOT_LOGGED_IN = "not_logged_in"
@@ -28,7 +29,8 @@ class WhatsApp:
     _task_queue = asyncio.Queue()
     _worker_task = None
 
-    BASE_URL = "https://web.whatsapp.com/"
+    LANG_PREF = "wa_web_lang_pref"
+    BASE_URL = "web.whatsapp.com"
     SUFFIX_LINK = "https://web.whatsapp.com/send?phone={mobile}&text&type=phone_number&app_absent=1"
     QR_PATH = "automation_core/whatsapp/qr.png"
 
@@ -84,9 +86,24 @@ class WhatsApp:
 
     @classmethod
     async def go_to_base(cls, page: Page):
-        url = page.url
-        if url is not cls.BASE_URL:
-            await page.goto(cls.BASE_URL)
+        current_url = page.url
+        base_url = f"https://{cls.BASE_URL}/"
+        cookies: List[Dict] = await page.context.cookies()
+        lang_pref = next((cookie for cookie in cookies if cookie["name"] == cls.LANG_PREF), None)
+        if current_url != base_url or (lang_pref and lang_pref["value"] != "en_US"):
+            await cls._set_localization(page)
+            await page.goto(base_url)
+
+    @classmethod
+    async def _set_localization(cls, page:Page):
+        await page.context.clear_cookies(name=cls.LANG_PREF)
+        await page.context.add_cookies([{
+            "name": cls.LANG_PREF,
+            "value": "en_US",
+            "domain": f".{cls.BASE_URL}",
+            "path": "/",
+            "secure": True
+        }])
 
     @classmethod
     async def login(cls, page: Page) -> asyncio.Future:
@@ -113,6 +130,9 @@ class WhatsApp:
     async def _handle_qr_login(cls, page: Page):
         while True:
             try:
+                if await cls._is_logged_impl(page):
+                    break
+
                 qr_selector = page.get_by_role("img", name="Scan this QR code to link a")
                 await qr_selector.wait_for(timeout=utils.ONE_SECOND)
 
@@ -126,10 +146,6 @@ class WhatsApp:
                     await utils.take_qr_screenshot(qr_selector, local_path)
                     cls._event_emitter.emit(WhatsAppEventName.NEW_QR_SCREENSHOT, remote_path)
                     cls._initial_data_ref = current_data_ref
-
-                chat_selector = page.get_by_role("button", name="Chats")
-                if await chat_selector.wait_for(timeout=utils.ONE_SECOND):
-                    break
 
             except TimeoutError:
                 pass
