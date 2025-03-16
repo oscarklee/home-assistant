@@ -25,7 +25,7 @@ class WhatsApp:
     _instance = None
     _lock = asyncio.Lock()
     _state: WhatsAppLoginStatus = WhatsAppLoginStatus.NOT_LOGGED_IN
-    _event_emitter = EventEmitter()
+    event_emitter = EventEmitter()
     _task_queue = asyncio.Queue()
     _worker_task = None
     _shutdown_event: asyncio.Event = asyncio.Event()
@@ -71,7 +71,7 @@ class WhatsApp:
     @classmethod
     async def _create_new_messages_listener_event(cls, page: Page):
         async def on_mutation(message_data):
-            cls._event_emitter.emit(WhatsAppEventName.MESSAGE_COMING, message_data)
+            cls.event_emitter.emit(WhatsAppEventName.MESSAGE_COMING, message_data)
 
         await page.expose_function("onMutation", on_mutation)
         chat_elements = await page.query_selector_all('#pane-side div[role="listitem"]')
@@ -169,12 +169,12 @@ class WhatsApp:
             return
         if cls._state is WhatsAppLoginStatus.LOGGED_IN or await cls._is_logged_impl(page):
             cls._state = WhatsAppLoginStatus.LOGGED_IN
-            cls._event_emitter.emit(WhatsAppEventName.LOGIN_STATUS, cls._state)
+            cls.event_emitter.emit(WhatsAppEventName.LOGIN_STATUS, cls._state)
         else:
             cls._state = WhatsAppLoginStatus.LOGIN_IN_PROGRESS
             await cls._handle_qr_login(page)
             cls._state = WhatsAppLoginStatus.LOGGED_IN
-            cls._event_emitter.emit(WhatsAppEventName.LOGIN_STATUS, cls._state)
+            cls.event_emitter.emit(WhatsAppEventName.LOGIN_STATUS, cls._state)
 
     @classmethod
     async def _handle_qr_login(cls, page: Page):
@@ -194,7 +194,7 @@ class WhatsApp:
                     local_path = f"config/www/{cls.QR_PATH}"
                     remote_path = f"/local/{cls.QR_PATH}"
                     await utils.take_qr_screenshot(qr_selector, local_path)
-                    cls._event_emitter.emit(WhatsAppEventName.NEW_QR_SCREENSHOT, remote_path)
+                    cls.event_emitter.emit(WhatsAppEventName.NEW_QR_SCREENSHOT, remote_path)
                     cls._initial_data_ref = current_data_ref
 
             except TimeoutError:

@@ -28,9 +28,9 @@ async def main():
     automation_service = AutomationService()
     try:
         page: Page = await automation_service.get_page('whatsapp')
-        WhatsApp._event_emitter.add_listener(WhatsAppEventName.NEW_QR_SCREENSHOT, lambda path: LOGGER.info(f"New QR!! : {path}"))
-        WhatsApp._event_emitter.add_listener(WhatsAppEventName.LOGIN_STATUS, lambda status: asyncio.create_task(on_login(page, status)))
-        WhatsApp._event_emitter.add_listener(WhatsAppEventName.MESSAGE_COMING, lambda event: LOGGER.info(f"New Message from:{event["sender"]} message:{event["message"]}"))
+        WhatsApp.event_emitter.add_listener(WhatsAppEventName.NEW_QR_SCREENSHOT, lambda path: LOGGER.info(f"New QR!! : {path}"))
+        WhatsApp.event_emitter.add_listener(WhatsAppEventName.LOGIN_STATUS, lambda status: asyncio.create_task(on_login(page, status)))
+        WhatsApp.event_emitter.add_listener(WhatsAppEventName.MESSAGE_COMING, lambda event: LOGGER.info(f"New Message from:{event["sender"]} message:{event["message"]}"))
         await WhatsApp.login(page)
     except Exception as e:
         LOGGER.error(f"Error: {e}")

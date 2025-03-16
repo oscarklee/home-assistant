@@ -32,7 +32,7 @@ class WhatsAppQRImage(ImageAutomationEntity):
             manufacturer="oklee",
             entry_type=DeviceEntryType.SERVICE,
         )
-        WhatsApp._event_emitter.on(WhatsAppEventName.NEW_QR_SCREENSHOT, self._handle_new_qr)
+        WhatsApp.event_emitter.on(WhatsAppEventName.NEW_QR_SCREENSHOT, self._handle_new_qr)
     
     @property
     def state(self):
