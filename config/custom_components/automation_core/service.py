@@ -37,16 +37,14 @@ class AutomationService:
             raise
 
     async def _cleanup(self) -> None:
-        if self._context:
-            await self._context.close()
-            self._context = None
+        self._context = None
         self.pages.clear()
 
     async def shutdown(self) -> None:
         self._shutdown_event.set()
 
     async def get_context(self) -> ChromiumBrowserContext:
-        while True:
+        while not self._shutdown_event.is_set():
             if self._context is not None:
                 return self._context
             

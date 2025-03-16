@@ -28,6 +28,7 @@ class WhatsApp:
     _event_emitter = EventEmitter()
     _task_queue = asyncio.Queue()
     _worker_task = None
+    _shutdown_event: asyncio.Event = asyncio.Event()
 
     LANG_PREF = "wa_web_lang_pref"
     BASE_URL = "web.whatsapp.com"
@@ -40,13 +41,17 @@ class WhatsApp:
         return cls._instance
     
     @classmethod
+    async def shutdown(cls):
+        cls._shutdown_event.set()
+    
+    @classmethod
     async def _start_worker(cls):
         if cls._worker_task is None:
             cls._worker_task = asyncio.create_task(cls._worker())
 
     @classmethod
     async def _worker(cls):
-        while True:
+        while not cls._shutdown_event.is_set():
             method, args, kwargs, future = await cls._task_queue.get()
             try:
                 result = await method(*args, **kwargs)
@@ -99,8 +104,7 @@ class WhatsApp:
             });
         }
         """, element_handles)
-        while True:
-            await asyncio.sleep(1)
+        await cls._shutdown_event.wait()
 
     @classmethod
     async def is_logged(cls, page: Page) -> asyncio.Future:
@@ -174,7 +178,7 @@ class WhatsApp:
 
     @classmethod
     async def _handle_qr_login(cls, page: Page):
-        while True:
+        while not cls._shutdown_event.is_set():
             try:
                 if await cls._is_logged_impl(page):
                     break
