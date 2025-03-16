@@ -57,6 +57,52 @@ class WhatsApp:
                 cls._task_queue.task_done()
 
     @classmethod
+    async def create_new_messages_listener_event(cls, page: Page) -> asyncio.Future:
+        await cls._start_worker()
+        future = asyncio.Future()
+        await cls._task_queue.put((cls._create_new_messages_listener_event, (page,), {}, future))
+        return future
+
+    @classmethod
+    async def _create_new_messages_listener_event(cls, page: Page):
+        async def on_mutation(message_data):
+            cls._event_emitter.emit(WhatsAppEventName.MESSAGE_COMING, message_data)
+
+        await page.expose_function("onMutation", on_mutation)
+        chat_elements = await page.query_selector_all('#pane-side div[role="listitem"]')
+        element_handles = [element for element in chat_elements]
+        await page.evaluate("""
+        (elements) => {
+            const config = { attributes: true, childList: true, subtree: true };
+            elements.forEach(element => {        
+                const callback = function(mutationsList, observer) {
+                    const messageData = {};
+                    const titleElement = element.querySelector('span[title]');
+                    messageData.sender = titleElement ? titleElement.getAttribute('title') : 'Desconocido';
+                    const timeElement = element.querySelectorAll('div[role="gridcell"] > div')[1];
+                    messageData.time = timeElement ? timeElement.textContent : '';
+                    const messageElement = element.querySelector('span[dir="ltr"]');
+                    messageData.message = messageElement ? messageElement.textContent : '';
+                    const unreadBadge = element.querySelector('span[aria-label*="me"]');
+                    messageData.unread = !!unreadBadge;
+                    messageData.no_of_unread = 0;
+                    if (unreadBadge) {
+                        const badgeText = unreadBadge.textContent.trim();
+                        messageData.no_of_unread = badgeText && !isNaN(badgeText) ? parseInt(badgeText) : 1;
+                    }
+
+                    window.onMutation(messageData);
+                };
+                            
+                const observer = new MutationObserver(callback);
+                observer.observe(element, config);
+            });
+        }
+        """, element_handles)
+        while True:
+            await asyncio.sleep(1)
+
+    @classmethod
     async def is_logged(cls, page: Page) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
@@ -290,18 +336,6 @@ class WhatsApp:
     @classmethod
     async def _send_document_impl(cls, page: Page, doc_path: Path, caption: Optional[str] = None) -> None:
         await cls._send_media_impl(page, doc_path, caption, "document")
-
-    @classmethod
-    async def get_unread_messages(cls, page: Page) -> asyncio.Future:
-        await cls._start_worker()
-        future = asyncio.Future()
-        await cls._task_queue.put((cls._get_unread_messages_impl, (page,), {}, future))
-        return future
-
-    @classmethod
-    async def _get_unread_messages_impl(cls, page: Page) -> int:
-        unread = await page.get_by_label("mensajes no leídos").text_content()
-        return len(unread)
 
     @classmethod
     async def send_me_and_wait(cls, page: Page, message: str) -> asyncio.Future:
