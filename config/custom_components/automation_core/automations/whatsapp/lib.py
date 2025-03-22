@@ -1,13 +1,16 @@
 import logging
 import asyncio
+import re
 
 from typing import Optional, List, Dict
 from pathlib import Path
 from custom_components.automation_core import utils
+from dataclasses import dataclass
 from playwright.async_api import Page, TimeoutError, ElementHandle
 from playwright.async_api import expect
 from pyee import EventEmitter
 from enum import StrEnum
+from datetime import datetime, time, timedelta
 
 LOGGER = logging.getLogger(__name__)
 
@@ -21,6 +24,41 @@ class WhatsAppLoginStatus(StrEnum):
     LOGGED_IN = "logged_in"
     LOGIN_IN_PROGRESS = "login_in_progress" 
 
+@dataclass
+class WhatsAppMessage:
+    sender: str
+    me: bool
+    time: str
+    message: str
+    unread: bool
+    no_of_unread: int
+    pattern: str = r"^(1[0-2]|0?[1-9]):([0-5][0-9])\s*(a\.m\.|p\.m\.)$"
+
+    @classmethod
+    def from_dict(cls, message_data: dict) -> 'WhatsAppMessage':
+        message_data["time"] = cls._parse_time(message_data["time"])
+        return cls(**message_data)
+    
+    @classmethod
+    def _parse_time(cls, timeStr: str):
+        if (not timeStr):
+            return
+        
+        normalized_str = timeStr.replace("a.m.", "AM").replace("p.m.", "PM")
+        if (not re.match(cls.pattern, timeStr)):
+            normalized_str = "12:00 AM"
+
+        
+        time_obj = datetime.strptime(normalized_str, "%I:%M %p")
+        now = datetime.now()
+        return time(time_obj.hour, time_obj.minute, now.second, now.microsecond)
+    
+    def __eq__(self, other):
+        if not isinstance(other, WhatsAppMessage):
+            return False
+        return (self.sender == other.sender and
+                self.message == other.message)
+
 class WhatsApp:
     _instance = None
     _lock = asyncio.Lock()
@@ -29,6 +67,8 @@ class WhatsApp:
     _task_queue = asyncio.Queue()
     _worker_task = None
     _shutdown_event: asyncio.Event = asyncio.Event()
+    _current_messages: Dict[str, WhatsAppMessage] = {}
+    _current_user: str = None
 
     LANG_PREF = "wa_web_lang_pref"
     BASE_URL = "web.whatsapp.com"
@@ -71,19 +111,30 @@ class WhatsApp:
     @classmethod
     async def _create_new_messages_listener_event(cls, page: Page):
         async def on_mutation(message_data):
-            cls.event_emitter.emit(WhatsAppEventName.MESSAGE_COMING, message_data)
+            new_message = WhatsAppMessage.from_dict(message_data)
+            message = cls._current_messages.get(new_message.sender)
+            if message and new_message.sender == message.sender and (
+                new_message.message == message.message or 
+                new_message.time < message.time):
+                return
+            
+            cls._current_messages[new_message.sender] = new_message
+            cls.event_emitter.emit(WhatsAppEventName.MESSAGE_COMING, new_message)
 
         await page.expose_function("onMutation", on_mutation)
-        chat_elements = await page.query_selector_all('#pane-side div[role="listitem"]')
-        element_handles = [element for element in chat_elements]
-        await page.evaluate("""
-        (elements) => {
+        pane_side = await page.query_selector('#pane-side')
+        await page.evaluate(""" 
+        (pane) => {
             const config = { attributes: true, childList: true, subtree: true };
-            elements.forEach(element => {        
-                const callback = function(mutationsList, observer) {
+            const callback = function(mutationsList, observer) {
+                const listItems = pane.querySelectorAll('div[role="listitem"]');
+                const chatItems = Array.from(listItems).filter(item => item.querySelector('span[title]') !== null);
+                chatItems.forEach(element => {
                     const messageData = {};
                     const titleElement = element.querySelector('span[title]');
-                    messageData.sender = titleElement ? titleElement.getAttribute('title') : 'Desconocido';
+                    messageData.sender = titleElement ? titleElement.getAttribute('title') : 'Unknown';
+                    const meElement = titleElement ? titleElement.parentElement.querySelector('span[title] ~ span') : null;
+                    messageData.me = !!meElement;
                     const timeElement = element.querySelectorAll('div[role="gridcell"] > div')[1];
                     messageData.time = timeElement ? timeElement.textContent : '';
                     const messageElement = element.querySelector('span[dir="ltr"]');
@@ -97,13 +148,13 @@ class WhatsApp:
                     }
 
                     window.onMutation(messageData);
-                };
-                            
-                const observer = new MutationObserver(callback);
-                observer.observe(element, config);
-            });
+                });
+            };
+            
+            const observer = new MutationObserver(callback);
+            observer.observe(pane, config);
         }
-        """, element_handles)
+        """, pane_side)
         await cls._shutdown_event.wait()
 
     @classmethod
@@ -121,7 +172,7 @@ class WhatsApp:
         done, pending = await asyncio.wait(
             [heading_task, login_text_task],
             return_when=asyncio.FIRST_COMPLETED,
-            timeout=10
+            timeout=30
         )
         for task in pending:
             task.cancel()
@@ -219,17 +270,14 @@ class WhatsApp:
 
     @classmethod
     async def find_by_name(cls, page: Page, name: str) -> asyncio.Future:
-        await cls._start_worker()
-        future = asyncio.Future()
-        await cls._task_queue.put((cls._find_by_name_impl, (page, name), {}, future))
-        return future
+        if (cls._current_user == name):
+            return
 
-    @classmethod
-    async def _find_by_name_impl(cls, page: Page, name: str) -> None:
-        search_box = page.get_by_role("textbox", name="Buscar").get_by_role("paragraph")
+        search_box = page.get_by_role("textbox", name="Search").get_by_role("paragraph")
         await search_box.click()
         await search_box.fill(name)
-        await page.get_by_label("Resultados de la búsqueda.").get_by_role("listitem").get_by_text(name).first.click()
+        await page.get_by_label("Search results.").get_by_role("listitem").get_by_text(name).first.click()
+        cls._current_user = name
 
     @classmethod
     async def find_me(cls, page: Page) -> asyncio.Future:
@@ -272,12 +320,21 @@ class WhatsApp:
     async def send_message(cls, page: Page, message: str) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._send_message_impl, (page, message), {}, future))
+        await cls._task_queue.put((cls._send_message_impl, (page, message,), {}, future))
         return future
 
     @classmethod
     async def _send_message_impl(cls, page: Page, message: str) -> None:
-        input_box = page.get_by_role("textbox", name="Escribe un mensaje")
+        await asyncio.sleep(1)
+        if (cls._current_user and cls._current_messages[cls._current_user]):
+            current_message: WhatsAppMessage = cls._current_messages[cls._current_user]
+            current_message.message = message
+            now = datetime.now().time()
+            dt = datetime.combine(datetime.today().date(), now)
+            dt_plus_5 = dt + timedelta(seconds=5)
+            current_message.time = dt_plus_5.time()
+
+        input_box = page.get_by_role("textbox", name="Type a message")
         await input_box.click()
         for line in message.split("\n"):
             await input_box.type(line)
