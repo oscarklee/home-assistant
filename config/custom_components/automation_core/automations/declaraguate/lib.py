@@ -1,6 +1,6 @@
 import logging
 
-from playwright.async_api import Page
+from playwright.async_api import Page, Locator
 from custom_components.automation_core import utils
 from custom_components.automation_core.automations.whatsapp.lib import WhatsApp, WhatsAppEventName, WhatsAppMessage, WhatsAppLoginStatus
 
@@ -40,17 +40,43 @@ class DeclaraGuate:
     async def _login(cls):
         await cls.go_to_base()
         await cls._page.get_by_role("link", name="IVA PEQUEÑO CONTRIBUYENTE").click()
-        
+        await cls._handle_captcha()
+
+    @classmethod
+    async def _handle_captcha(cls):
         captcha_panel = cls._page.locator("#mainForm\\:captchaPanel")
         captcha_img = captcha_panel.locator("img.iceGphImg")
         local_path = f"config/www/{cls.CAPTCHA_PATH}"
         await utils.take_qr_screenshot(captcha_img, local_path)
         
-        WhatsApp.event_emitter.add_listener(WhatsAppEventName.MESSAGE_COMING, lambda event: cls._captcha_resolution(event))
+        async def callback(event: WhatsAppMessage):
+            if (not event.me or len(event.message) != 5):
+                return
+            
+            WhatsApp.event_emitter.remove_listener(WhatsAppEventName.MESSAGE_COMING, callback)
+            await cls._captcha_resolution(event, captcha_panel)
+
+        WhatsApp.event_emitter.add_listener(WhatsAppEventName.MESSAGE_COMING, callback)
         await WhatsApp.find_by_name("Oscar Klee")
         await WhatsApp._send_image_impl(local_path, "Declaraguate captcha resolution requirement.")
 
     @classmethod
-    async def _captcha_resolution(cls, event: WhatsAppMessage):
-        if (event.me):
-            LOGGER.info(f"New Message from:{event.sender} message:{event.message}")
+    async def _captcha_resolution(cls, event: WhatsAppMessage, panel: Locator):        
+        LOGGER.info(f"New Message from:{event.sender} message:{event.message}")
+        
+        input_text = panel.locator("input.iceInpTxt")
+        await input_text.click()
+        await input_text.fill(event.message)
+
+        submit_btn = panel.locator("input.iceCmdBtnBig")
+        await submit_btn.click()
+
+        if await submit_btn.is_visible(timeout=utils.seconds(3)):
+            await cls._handle_captcha()
+            return
+
+        await cls._declare_taxes()
+
+    @classmethod
+    async def _declare_taxes(cls):
+        LOGGER.info(f"Starting to declare taxes")
