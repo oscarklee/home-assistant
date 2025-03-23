@@ -27,7 +27,7 @@ async def forward_message(page: Page, event: WhatsAppMessage):
     LOGGER.info(f"New Message from:{event.sender} message:{event.message}")
     if (event.me):
         await WhatsApp.find_by_name(page, event.sender)
-        await WhatsApp._send_message_impl(page, "test message")
+        await WhatsApp._send_image_impl(page, "config/www/automation_core/whatsapp/qr.png", "test message")
 
 async def main():
     LOGGER.info("Testing WhatsApp Automation")

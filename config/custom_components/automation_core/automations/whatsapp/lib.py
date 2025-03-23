@@ -350,20 +350,22 @@ class WhatsApp:
 
     @classmethod
     async def _send_media_impl(cls, page: Page, file_path: Path, message: Optional[str] = None, media_type: str = "image") -> None:
-        await page.get_by_role("button", name="Adjuntar").click()
-        with page.expect_file_chooser() as fc_info:
+        await page.get_by_role("button", name="Attach").click()
+        async with page.expect_file_chooser() as fc_info:
             if media_type == "image":
-                await page.get_by_role("button", name="Fotos y videos").click()
+                await page.get_by_role("button", name="Photos & videos").click()
             elif media_type == "document":
-                await page.get_by_role("button", name="Documento").click()
-        file_chooser = fc_info.value
-        file_chooser.set_files(file_path)
+                await page.get_by_role("button", name="Document").click()
+
+            file_chooser = await fc_info.value
+            await file_chooser.set_files(file_path)
+
         if message:
-            caption = page.get_by_role("textbox", name="Añade un comentario")
+            caption = page.get_by_role("textbox", name="Add a caption")
             await caption.wait_for()
             await caption.type(message)
-        await page.get_by_role("button", name="Enviar", exact=True).click()
-        LOGGER.info(f"Archivo {file_path.name} enviado")
+        await page.get_by_role("button", name="Send", exact=True).click()
+        LOGGER.info(f"File {file_path} Sent")
 
     @classmethod
     async def send_image(cls, page: Page, image_path: Path, caption: Optional[str] = None) -> asyncio.Future:
