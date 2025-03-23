@@ -8,7 +8,7 @@ from custom_components.automation_core import utils
 from dataclasses import dataclass
 from playwright.async_api import Page, TimeoutError, ElementHandle
 from playwright.async_api import expect
-from pyee import EventEmitter
+from pyee.asyncio import AsyncIOEventEmitter
 from enum import StrEnum
 from datetime import datetime, time, timedelta
 
@@ -63,23 +63,19 @@ class WhatsApp:
     _instance = None
     _lock = asyncio.Lock()
     _state: WhatsAppLoginStatus = WhatsAppLoginStatus.NOT_LOGGED_IN
-    event_emitter = EventEmitter()
+    event_emitter = AsyncIOEventEmitter()
     _task_queue = asyncio.Queue()
     _worker_task = None
     _shutdown_event: asyncio.Event = asyncio.Event()
     _current_messages: Dict[str, WhatsAppMessage] = {}
     _current_user: str = None
+    _page: Page = None
 
     LANG_PREF = "wa_web_lang_pref"
     BASE_URL = "web.whatsapp.com"
     SUFFIX_LINK = "https://web.whatsapp.com/send?phone={mobile}&text&type=phone_number&app_absent=1"
     QR_PATH = "automation_core/whatsapp/qr.png"
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-    
     @classmethod
     async def shutdown(cls):
         cls._shutdown_event.set()
@@ -102,14 +98,14 @@ class WhatsApp:
                 cls._task_queue.task_done()
 
     @classmethod
-    async def create_new_messages_listener_event(cls, page: Page) -> asyncio.Future:
+    async def create_new_messages_listener_event(cls) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._create_new_messages_listener_event, (page,), {}, future))
+        await cls._task_queue.put((cls._create_new_messages_listener_event, (), {}, future))
         return future
 
     @classmethod
-    async def _create_new_messages_listener_event(cls, page: Page):
+    async def _create_new_messages_listener_event(cls):
         async def on_mutation(message_data):
             new_message = WhatsAppMessage.from_dict(message_data)
             message = cls._current_messages.get(new_message.sender)
@@ -121,9 +117,9 @@ class WhatsApp:
             cls._current_messages[new_message.sender] = new_message
             cls.event_emitter.emit(WhatsAppEventName.MESSAGE_COMING, new_message)
 
-        await page.expose_function("onMutation", on_mutation)
-        pane_side = await page.query_selector('#pane-side')
-        await page.evaluate(""" 
+        await cls._page.expose_function("onMutation", on_mutation)
+        pane_side = await cls._page.query_selector('#pane-side')
+        await cls._page.evaluate(""" 
         (pane) => {
             const config = { attributes: true, childList: true, subtree: true };
             const callback = function(mutationsList, observer) {
@@ -158,17 +154,17 @@ class WhatsApp:
         await cls._shutdown_event.wait()
 
     @classmethod
-    async def is_logged(cls, page: Page) -> asyncio.Future:
+    async def is_logged(cls) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._is_logged_impl, (page,), {}, future))
+        await cls._task_queue.put((cls._is_logged_impl, (), {}, future))
         return future
 
     @classmethod
-    async def _is_logged_impl(cls, page: Page) -> bool:
-        await cls.go_to_base(page)
-        heading_task = asyncio.create_task(page.get_by_role("button", name="Chats").wait_for())
-        login_text_task = asyncio.create_task(page.wait_for_selector('text="Log into WhatsApp Web"'))
+    async def _is_logged_impl(cls) -> bool:
+        await cls.go_to_base()
+        heading_task = asyncio.create_task(cls._page.get_by_role("button", name="Chats").wait_for())
+        login_text_task = asyncio.create_task(cls._page.wait_for_selector('text="Log into WhatsApp Web"'))
         done, pending = await asyncio.wait(
             [heading_task, login_text_task],
             return_when=asyncio.FIRST_COMPLETED,
@@ -186,19 +182,19 @@ class WhatsApp:
             raise Exception("No se detectó 'heading' ni 'Inicia sesión en WhatsApp Web'.")
 
     @classmethod
-    async def go_to_base(cls, page: Page):
-        current_url = page.url
+    async def go_to_base(cls):
+        current_url = cls._page.url
         base_url = f"https://{cls.BASE_URL}/"
-        cookies: List[Dict] = await page.context.cookies()
+        cookies: List[Dict] = await cls._page.context.cookies()
         lang_pref = next((cookie for cookie in cookies if cookie["name"] == cls.LANG_PREF), None)
         if current_url != base_url or (lang_pref and lang_pref["value"] != "en_US"):
-            await cls._set_localization(page)
-            await page.goto(base_url)
+            await cls._set_localization()
+            await cls._page.goto(base_url)
 
     @classmethod
-    async def _set_localization(cls, page:Page):
-        await page.context.clear_cookies(name=cls.LANG_PREF)
-        await page.context.add_cookies([{
+    async def _set_localization(cls):
+        await cls._page.context.clear_cookies(name=cls.LANG_PREF)
+        await cls._page.context.add_cookies([{
             "name": cls.LANG_PREF,
             "value": "en_US",
             "domain": f".{cls.BASE_URL}",
@@ -208,33 +204,34 @@ class WhatsApp:
 
     @classmethod
     async def login(cls, page: Page) -> asyncio.Future:
+        cls._page = page
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._login_impl, (page,), {}, future))
+        await cls._task_queue.put((cls._login_impl, (), {}, future))
         return future
 
     @classmethod
-    async def _login_impl(cls, page: Page) -> None:
+    async def _login_impl(cls) -> None:
         if cls._state is WhatsAppLoginStatus.LOGIN_IN_PROGRESS:
             LOGGER.info(f"login not executed - current status: {cls._state}")
             return
-        if cls._state is WhatsAppLoginStatus.LOGGED_IN or await cls._is_logged_impl(page):
+        if cls._state is WhatsAppLoginStatus.LOGGED_IN or await cls._is_logged_impl():
             cls._state = WhatsAppLoginStatus.LOGGED_IN
             cls.event_emitter.emit(WhatsAppEventName.LOGIN_STATUS, cls._state)
         else:
             cls._state = WhatsAppLoginStatus.LOGIN_IN_PROGRESS
-            await cls._handle_qr_login(page)
+            await cls._handle_qr_login()
             cls._state = WhatsAppLoginStatus.LOGGED_IN
             cls.event_emitter.emit(WhatsAppEventName.LOGIN_STATUS, cls._state)
 
     @classmethod
-    async def _handle_qr_login(cls, page: Page):
+    async def _handle_qr_login(cls):
         while not cls._shutdown_event.is_set():
             try:
-                if await cls._is_logged_impl(page):
+                if await cls._is_logged_impl():
                     break
 
-                qr_selector = page.get_by_role("img", name="Scan this QR code to link a")
+                qr_selector = cls._page.get_by_role("img", name="Scan this QR code to link a")
                 await qr_selector.wait_for(timeout=utils.ONE_SECOND)
 
                 qr_element = await qr_selector.element_handle()
@@ -252,79 +249,79 @@ class WhatsApp:
                 pass
 
     @classmethod
-    async def logout(cls, page: Page) -> asyncio.Future:
+    async def logout(cls) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._logout_impl, (page,), {}, future))
+        await cls._task_queue.put((cls._logout_impl, (), {}, future))
         return future
 
     @classmethod
-    async def _logout_impl(cls, page: Page) -> None:
-        settings = page.get_by_role("button", name="Ajustes")
+    async def _logout_impl(cls) -> None:
+        settings = cls._page.get_by_role("button", name="Ajustes")
         await settings.click()
-        logout_button = page.get_by_role("button", name="Cerrar sesión")
+        logout_button = cls._page.get_by_role("button", name="Cerrar sesión")
         await logout_button.click()
-        confirm_logout = page.get_by_label("¿Deseas cerrar sesión?").get_by_role("button", name="Cerrar sesión")
+        confirm_logout = cls._page.get_by_label("¿Deseas cerrar sesión?").get_by_role("button", name="Cerrar sesión")
         await confirm_logout.click()
         LOGGER.info("Sesión cerrada")
 
     @classmethod
-    async def find_by_name(cls, page: Page, name: str) -> asyncio.Future:
+    async def find_by_name(cls, name: str) -> asyncio.Future:
         if (cls._current_user == name):
             return
 
-        search_box = page.get_by_role("textbox", name="Search").get_by_role("paragraph")
+        search_box = cls._page.get_by_role("textbox", name="Search").get_by_role("paragraph")
         await search_box.click()
         await search_box.fill(name)
-        await page.get_by_label("Search results.").get_by_role("listitem").get_by_text(name).first.click()
+        await cls._page.get_by_label("Search results.").get_by_role("listitem").get_by_text(name).first.click()
         cls._current_user = name
 
     @classmethod
-    async def find_me(cls, page: Page) -> asyncio.Future:
+    async def find_me(cls) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._find_me_impl, (page,), {}, future))
+        await cls._task_queue.put((cls._find_me_impl, (), {}, future))
         return future
 
     @classmethod
-    async def _find_me_impl(cls, page: Page) -> None:
-        await cls._find_by_name_impl(page, "(Tú)")
+    async def _find_me_impl(cls) -> None:
+        await cls._find_by_name_impl("(Tú)")
 
     @classmethod
-    async def find_user(cls, page: Page, mobile: str) -> asyncio.Future:
+    async def find_user(cls, mobile: str) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._find_user_impl, (page, mobile), {}, future))
+        await cls._task_queue.put((cls._find_user_impl, (mobile), {}, future))
         return future
 
     @classmethod
-    async def _find_user_impl(cls, page: Page, mobile: str) -> None:
+    async def _find_user_impl(cls, mobile: str) -> None:
         url = cls.SUFFIX_LINK.format(mobile=mobile)
-        await page.goto(url)
-        message_input = page.get_by_role("textbox", name="Escribe un mensaje")
+        await cls._page.goto(url)
+        message_input = cls._page.get_by_role("textbox", name="Escribe un mensaje")
         await message_input.wait_for(timeout=utils.minutes(1))
 
     @classmethod
-    async def send_me_message(cls, page: Page, message: str) -> asyncio.Future:
+    async def send_me_message(cls, message: str) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._send_me_message_impl, (page, message), {}, future))
+        await cls._task_queue.put((cls._send_me_message_impl, (message), {}, future))
         return future
 
     @classmethod
-    async def _send_me_message_impl(cls, page: Page, message: str) -> None:
-        await cls._find_me_impl(page)
-        await cls._send_message_impl(page, message)
+    async def _send_me_message_impl(cls, message: str) -> None:
+        await cls._find_me_impl()
+        await cls._send_message_impl(message)
 
     @classmethod
-    async def send_message(cls, page: Page, message: str) -> asyncio.Future:
+    async def send_message(cls, message: str) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._send_message_impl, (page, message,), {}, future))
+        await cls._task_queue.put((cls._send_message_impl, (message,), {}, future))
         return future
-
+    
     @classmethod
-    async def _send_message_impl(cls, page: Page, message: str) -> None:
+    async def _message_cooldown(cls, message: str):
         await asyncio.sleep(1)
         if (cls._current_user and cls._current_messages[cls._current_user]):
             current_message: WhatsAppMessage = cls._current_messages[cls._current_user]
@@ -334,83 +331,87 @@ class WhatsApp:
             dt_plus_5 = dt + timedelta(seconds=5)
             current_message.time = dt_plus_5.time()
 
-        input_box = page.get_by_role("textbox", name="Type a message")
+    @classmethod
+    async def _send_message_impl(cls, message: str) -> None:
+        cls._message_cooldown(message)
+        input_box = cls._page.get_by_role("textbox", name="Type a message")
         await input_box.click()
         for line in message.split("\n"):
             await input_box.type(line)
-            await page.keyboard.press("Shift+Enter")
-        await page.keyboard.press("Enter")
+            await cls._page.keyboard.press("Shift+Enter")
+        await cls._page.keyboard.press("Enter")
 
     @classmethod
-    async def send_media(cls, page: Page, file_path: Path, message: Optional[str] = None, media_type: str = "image") -> asyncio.Future:
+    async def send_media(cls, file_path: Path, message: Optional[str] = None, media_type: str = "image") -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._send_media_impl, (page, file_path), {"message": message, "media_type": media_type}, future))
+        await cls._task_queue.put((cls._send_media_impl, (file_path), {"message": message, "media_type": media_type}, future))
         return future
 
     @classmethod
-    async def _send_media_impl(cls, page: Page, file_path: Path, message: Optional[str] = None, media_type: str = "image") -> None:
-        await page.get_by_role("button", name="Attach").click()
-        async with page.expect_file_chooser() as fc_info:
+    async def _send_media_impl(cls, file_path: Path, message: Optional[str] = None, media_type: str = "image") -> None:
+        await cls._message_cooldown(message)
+        await cls._page.get_by_role("button", name="Attach").click()
+        async with cls._page.expect_file_chooser() as fc_info:
             if media_type == "image":
-                await page.get_by_role("button", name="Photos & videos").click()
+                await cls._page.get_by_role("button", name="Photos & videos").click()
             elif media_type == "document":
-                await page.get_by_role("button", name="Document").click()
+                await cls._page.get_by_role("button", name="Document").click()
 
             file_chooser = await fc_info.value
             await file_chooser.set_files(file_path)
 
         if message:
-            caption = page.get_by_role("textbox", name="Add a caption")
+            caption = cls._page.get_by_role("textbox", name="Add a caption")
             await caption.wait_for()
             await caption.type(message)
-        await page.get_by_role("button", name="Send", exact=True).click()
+        await cls._page.get_by_role("button", name="Send", exact=True).click()
         LOGGER.info(f"File {file_path} Sent")
 
     @classmethod
-    async def send_image(cls, page: Page, image_path: Path, caption: Optional[str] = None) -> asyncio.Future:
+    async def send_image(cls, image_path: Path, caption: Optional[str] = None) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._send_image_impl, (page, image_path), {"caption": caption}, future))
+        await cls._task_queue.put((cls._send_image_impl, (image_path), {"caption": caption}, future))
         return future
 
     @classmethod
-    async def _send_image_impl(cls, page: Page, image_path: Path, caption: Optional[str] = None) -> None:
-        await cls._send_media_impl(page, image_path, caption, "image")
+    async def _send_image_impl(cls, image_path: Path, caption: Optional[str] = None) -> None:
+        await cls._send_media_impl(image_path, caption, "image")
 
     @classmethod
-    async def send_video(cls, page: Page, video_path: Path, caption: Optional[str] = None) -> asyncio.Future:
+    async def send_video(cls, video_path: Path, caption: Optional[str] = None) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._send_video_impl, (page, video_path), {"caption": caption}, future))
+        await cls._task_queue.put((cls._send_video_impl, (video_path), {"caption": caption}, future))
         return future
 
     @classmethod
-    async def _send_video_impl(cls, page: Page, video_path: Path, caption: Optional[str] = None) -> None:
-        await cls._send_media_impl(page, video_path, caption, "video")
+    async def _send_video_impl(cls, video_path: Path, caption: Optional[str] = None) -> None:
+        await cls._send_media_impl(video_path, caption, "video")
 
     @classmethod
-    async def send_document(cls, page: Page, doc_path: Path, caption: Optional[str] = None) -> asyncio.Future:
+    async def send_document(cls, doc_path: Path, caption: Optional[str] = None) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._send_document_impl, (page, doc_path), {"caption": caption}, future))
+        await cls._task_queue.put((cls._send_document_impl, (doc_path), {"caption": caption}, future))
         return future
 
     @classmethod
-    async def _send_document_impl(cls, page: Page, doc_path: Path, caption: Optional[str] = None) -> None:
-        await cls._send_media_impl(page, doc_path, caption, "document")
+    async def _send_document_impl(cls, doc_path: Path, caption: Optional[str] = None) -> None:
+        await cls._send_media_impl(doc_path, caption, "document")
 
     @classmethod
-    async def send_me_and_wait(cls, page: Page, message: str) -> asyncio.Future:
+    async def send_me_and_wait(cls, message: str) -> asyncio.Future:
         await cls._start_worker()
         future = asyncio.Future()
-        await cls._task_queue.put((cls._send_me_and_wait_impl, (page, message), {}, future))
+        await cls._task_queue.put((cls._send_me_and_wait_impl, (message), {}, future))
         return future
 
     @classmethod
-    async def _send_me_and_wait_impl(cls, page: Page, message: str) -> str:
-        await cls._send_me_message_impl(page, message)
-        rows = page.get_by_role("application").get_by_role("row")
+    async def _send_me_and_wait_impl(cls, message: str) -> str:
+        await cls._send_me_message_impl(message)
+        rows = cls._page.get_by_role("application").get_by_role("row")
         chat_current_length = await rows.count()
         await expect(rows).to_have_count(chat_current_length + 1, timeout=utils.minutes(10))
         last_message = rows.last.locator(".selectable-text")
